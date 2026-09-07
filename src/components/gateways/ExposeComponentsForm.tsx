@@ -406,7 +406,7 @@ export function ExposeComponentsForm({
                       : intl.formatMessage({ id: "gateways.exposeComponents.error.tools" })
                   }
                   action={{
-                    label: "Retry",
+                    label: intl.formatMessage({ id: "common.button.retry" }),
                     onClick: () =>
                       refetchTools().catch((err) => console.error("Failed to refetch tools:", err)),
                   }}
@@ -488,7 +488,7 @@ export function ExposeComponentsForm({
                       : intl.formatMessage({ id: "gateways.exposeComponents.error.resources" })
                   }
                   action={{
-                    label: "Retry",
+                    label: intl.formatMessage({ id: "common.button.retry" }),
                     onClick: () =>
                       refetchResources().catch((err) =>
                         console.error("Failed to refetch resources:", err),
@@ -571,7 +571,7 @@ export function ExposeComponentsForm({
                       : intl.formatMessage({ id: "gateways.exposeComponents.error.prompts" })
                   }
                   action={{
-                    label: "Retry",
+                    label: intl.formatMessage({ id: "common.button.retry" }),
                     onClick: () =>
                       refetchPrompts().catch((err) =>
                         console.error("Failed to refetch prompts:", err),
