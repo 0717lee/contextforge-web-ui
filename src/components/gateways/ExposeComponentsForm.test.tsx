@@ -624,6 +624,38 @@ describe("ExposeComponentsForm", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
+    it("should keep healthy sections mounted while a failed section retries", async () => {
+      server.use(http.get("/api/tools", () => new HttpResponse(null, { status: 500 })));
+
+      const user = userEvent.setup();
+      renderWithProviders(<ExposeComponentsForm {...defaultProps} />);
+
+      const alert = await screen.findByRole("alert");
+      expect(screen.getByText("2 resources")).toBeInTheDocument();
+
+      // Make the retry hang so the per-section loading state stays observable.
+      server.use(
+        http.get("/api/tools", async () => {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          return HttpResponse.json(mockTools);
+        }),
+      );
+      await user.click(within(alert).getByRole("button", { name: "Retry" }));
+
+      // The tools section shows its own loading row instead of the error...
+      await waitFor(() => {
+        expect(screen.getByText("Loading...")).toBeInTheDocument();
+      });
+      // ...and the sections that already loaded are not replaced by a form-level spinner.
+      expect(screen.getByText("2 resources")).toBeInTheDocument();
+      expect(screen.getByText("3 prompt templates")).toBeInTheDocument();
+      expect(screen.queryByRole("status", { name: /loading/i })).not.toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(screen.getByText("3 tools")).toBeInTheDocument();
+      });
+    });
+
     it("should show a failed state for each section that failed to load", async () => {
       server.use(
         http.get("/api/tools", () => new HttpResponse(null, { status: 500 })),

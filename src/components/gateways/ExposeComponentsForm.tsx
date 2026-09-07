@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
+import { useIntl } from "react-intl";
 import {
   ChevronDown,
   ChevronRight,
@@ -146,6 +147,7 @@ export function ExposeComponentsForm({
   clearFetchToolsNotification,
 }: ExposeComponentsFormProps) {
   const { navigate } = useRouter();
+  const intl = useIntl();
   const [expandedSection, setExpandedSection] = useState<string | null>("tools");
   const [selectedTools, setSelectedTools] = useState<Set<string>>(new Set());
   const [selectedResources, setSelectedResources] = useState<Set<string>>(new Set());
@@ -198,6 +200,16 @@ export function ExposeComponentsForm({
   const promptCount = prompts.length;
 
   const isLoading = toolsLoading || resourcesLoading || promptsLoading;
+  // Only the very first load (before any section has resolved) replaces the whole
+  // form with a spinner; a per-section retry must keep the healthy sections visible.
+  const isInitialLoad =
+    isLoading &&
+    toolsData === undefined &&
+    resourcesData === undefined &&
+    promptsData === undefined &&
+    !toolsError &&
+    !resourcesError &&
+    !promptsError;
 
   const toggleSection = useCallback((section: string) => {
     setExpandedSection((prev) => (prev === section ? null : section));
@@ -279,7 +291,7 @@ export function ExposeComponentsForm({
     }
   };
 
-  if (isLoading) {
+  if (isInitialLoad) {
     return (
       <div className="mx-auto mt-6 w-full max-w-5xl rounded-xl border border-neutral-200 bg-inherit p-0 shadow-[0_12px_40px_rgba(15,23,42,0.12)] dark:border-neutral-800">
         <div className="flex items-center justify-center p-12">
@@ -361,9 +373,11 @@ export function ExposeComponentsForm({
                     toolsError ? STATUS_TONE_CLASS.error : "text-neutral-600 dark:text-neutral-400"
                   }`}
                 >
-                  {toolsError
-                    ? "Failed to load tools"
-                    : `${toolCount} ${toolCount === 1 ? "tool" : "tools"}`}
+                  {toolsLoading
+                    ? intl.formatMessage({ id: "common.loading" })
+                    : toolsError
+                      ? intl.formatMessage({ id: "gateways.exposeComponents.error.tools" })
+                      : intl.formatMessage({ id: "gateways.card.toolCount" }, { count: toolCount })}
                 </span>
               </div>
               {expandedSection === "tools" ? (
@@ -385,8 +399,11 @@ export function ExposeComponentsForm({
                   type="error"
                   message={
                     toolsError.message
-                      ? `Failed to load tools: ${toolsError.message}`
-                      : "Failed to load tools"
+                      ? intl.formatMessage(
+                          { id: "gateways.exposeComponents.error.toolsWithDetail" },
+                          { detail: toolsError.message },
+                        )
+                      : intl.formatMessage({ id: "gateways.exposeComponents.error.tools" })
                   }
                   action={{
                     label: "Retry",
@@ -435,9 +452,14 @@ export function ExposeComponentsForm({
                       : "text-neutral-600 dark:text-neutral-400"
                   }`}
                 >
-                  {resourcesError
-                    ? "Failed to load resources"
-                    : `${resourceCount} ${resourceCount === 1 ? "resource" : "resources"}`}
+                  {resourcesLoading
+                    ? intl.formatMessage({ id: "common.loading" })
+                    : resourcesError
+                      ? intl.formatMessage({ id: "gateways.exposeComponents.error.resources" })
+                      : intl.formatMessage(
+                          { id: "gateways.card.resourceCount" },
+                          { count: resourceCount },
+                        )}
                 </span>
               </div>
               {expandedSection === "resources" ? (
@@ -459,8 +481,11 @@ export function ExposeComponentsForm({
                   type="error"
                   message={
                     resourcesError.message
-                      ? `Failed to load resources: ${resourcesError.message}`
-                      : "Failed to load resources"
+                      ? intl.formatMessage(
+                          { id: "gateways.exposeComponents.error.resourcesWithDetail" },
+                          { detail: resourcesError.message },
+                        )
+                      : intl.formatMessage({ id: "gateways.exposeComponents.error.resources" })
                   }
                   action={{
                     label: "Retry",
@@ -510,9 +535,14 @@ export function ExposeComponentsForm({
                       : "text-neutral-600 dark:text-neutral-400"
                   }`}
                 >
-                  {promptsError
-                    ? "Failed to load prompt templates"
-                    : `${promptCount} prompt ${promptCount === 1 ? "template" : "templates"}`}
+                  {promptsLoading
+                    ? intl.formatMessage({ id: "common.loading" })
+                    : promptsError
+                      ? intl.formatMessage({ id: "gateways.exposeComponents.error.prompts" })
+                      : intl.formatMessage(
+                          { id: "gateways.exposeComponents.promptCount" },
+                          { count: promptCount },
+                        )}
                 </span>
               </div>
               {expandedSection === "prompts" ? (
@@ -534,8 +564,11 @@ export function ExposeComponentsForm({
                   type="error"
                   message={
                     promptsError.message
-                      ? `Failed to load prompt templates: ${promptsError.message}`
-                      : "Failed to load prompt templates"
+                      ? intl.formatMessage(
+                          { id: "gateways.exposeComponents.error.promptsWithDetail" },
+                          { detail: promptsError.message },
+                        )
+                      : intl.formatMessage({ id: "gateways.exposeComponents.error.prompts" })
                   }
                   action={{
                     label: "Retry",
