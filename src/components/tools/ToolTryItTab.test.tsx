@@ -163,7 +163,7 @@ describe("ToolTryItTab", () => {
       <ToolTryItTab tools={[selectedTool]} selectedTool={selectedTool} onSelectTool={vi.fn()} />,
     );
 
-    const toggle = screen.getByRole("button", { name: "Show more" });
+    const toggle = screen.getByRole("button", { name: "show more" });
     expect(screen.queryByText(longDescription.trim())).not.toBeInTheDocument();
 
     await user.click(toggle);

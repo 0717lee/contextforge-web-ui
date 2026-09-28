@@ -294,14 +294,14 @@ describe("ToolArgumentsForm", () => {
     expect(description?.textContent).toContain("…");
     expect(description?.textContent).not.toContain(longDescription.trim());
 
-    const toggle = screen.getByRole("button", { name: "Show more" });
+    const toggle = screen.getByRole("button", { name: "show more" });
     expect(toggle).toHaveAttribute("aria-controls", "tool-arg-query-description");
 
     await user.click(toggle);
     expect(description?.textContent).not.toContain("…");
     expect(description?.textContent).toContain(longDescription.trim());
 
-    await user.click(screen.getByRole("button", { name: "Show less" }));
+    await user.click(screen.getByRole("button", { name: "show less" }));
     expect(description?.textContent).toContain("…");
   });
 

@@ -9,10 +9,10 @@ describe("TruncatedDescription", () => {
     renderWithProviders(<TruncatedDescription text="Short description." id="desc" />);
 
     expect(screen.getByText("Short description.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "show more" })).not.toBeInTheDocument();
   });
 
-  it("clips long text and expands/collapses it via the Show more/less toggle", async () => {
+  it("clips long text and expands/collapses it via the show more/less toggle", async () => {
     const user = userEvent.setup();
     const longText = "A fairly long sentence about what this thing does. ".repeat(6);
 
@@ -22,18 +22,18 @@ describe("TruncatedDescription", () => {
     expect(description?.textContent).toContain("…");
     expect(description?.textContent).not.toContain(longText.trim());
 
-    const toggle = screen.getByRole("button", { name: "Show more" });
+    const toggle = screen.getByRole("button", { name: "show more" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(toggle).toHaveAttribute("aria-controls", "desc");
 
     await user.click(toggle);
     expect(description?.textContent).toContain(longText.trim());
-    expect(screen.getByRole("button", { name: "Show less" })).toHaveAttribute(
+    expect(screen.getByRole("button", { name: "show less" })).toHaveAttribute(
       "aria-expanded",
       "true",
     );
 
-    await user.click(screen.getByRole("button", { name: "Show less" }));
+    await user.click(screen.getByRole("button", { name: "show less" }));
     expect(description?.textContent).toContain("…");
   });
 });

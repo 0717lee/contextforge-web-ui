@@ -9,7 +9,7 @@ export const DESCRIPTION_TRUNCATE_LENGTH = 180;
 
 export interface TruncatedDescriptionProps {
   text: string;
-  /** Applied to the wrapping `<p>`; also the id a "Show more" toggle points
+  /** Applied to the wrapping `<p>`; also the id a "show more" toggle points
    * `aria-controls` at, so pass one when the text needs to be referenced
    * (e.g. via `aria-describedby` on a related field). */
   id?: string;
@@ -24,7 +24,7 @@ export interface TruncatedDescriptionProps {
 
 /**
  * Renders `text` clipped to `maxLength` characters with a trailing ellipsis,
- * plus an inline "Show more"/"Show less" toggle when it's actually longer
+ * plus an inline "show more"/"show less" toggle when it's actually longer
  * than that — shared by tool argument descriptions (`ToolArgumentsForm`) and
  * the tool description line (`ToolTryItTab`).
  */
@@ -49,7 +49,7 @@ export function TruncatedDescription({
           {" "}
           <button
             type="button"
-            className="font-medium text-foreground underline-offset-2 hover:underline"
+            className="font-normal text-muted-foreground underline-offset-2 hover:underline"
             aria-expanded={expanded}
             aria-controls={id}
             onClick={() => setExpanded((current) => !current)}
