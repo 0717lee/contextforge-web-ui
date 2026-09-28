@@ -13,6 +13,7 @@ import { getToolAnnotationHints } from "./toolAnnotations";
 
 export type ToolLiveInvokeAvailability =
   | { state: "checkingAccess" }
+  | { state: "permissionsError" }
   | { state: "missingPermission"; permission: "tools.execute" | "servers.use" }
   | { state: "available" }
   | { state: "requiresConfirmation" }
@@ -24,18 +25,42 @@ export interface ResolveToolLiveInvokeAvailabilityInput {
   canExecute: boolean;
   canUseServers: boolean;
   permissionsLoading: boolean;
+  permissionsError?: boolean;
   invalidGatewayId?: boolean;
   tool: Pick<Tool, "annotations" | "gatewayId">;
+}
+
+/**
+ * A toggle-based presentation (Tools drawer, virtual server "Test tool" tab)
+ * needs to know not just *why* live invocation is unavailable, but whether to
+ * show the toggle at all: it's hidden entirely when the caller lacks the
+ * permission to ever use it, and shown disabled with a reason for every other
+ * unavailable state.
+ */
+export function getToolLiveInvokeToggleVisibility(
+  availability: ToolLiveInvokeAvailability,
+): "hidden" | "disabled" | "enabled" {
+  switch (availability.state) {
+    case "missingPermission":
+      return "hidden";
+    case "available":
+    case "requiresConfirmation":
+      return "enabled";
+    default:
+      return "disabled";
+  }
 }
 
 export function resolveToolLiveInvokeAvailability({
   canExecute,
   canUseServers,
   permissionsLoading,
+  permissionsError = false,
   invalidGatewayId = false,
   tool,
 }: ResolveToolLiveInvokeAvailabilityInput): ToolLiveInvokeAvailability {
   if (permissionsLoading) return { state: "checkingAccess" };
+  if (permissionsError) return { state: "permissionsError" };
   if (!canExecute) return { state: "missingPermission", permission: "tools.execute" };
   if (!canUseServers) return { state: "missingPermission", permission: "servers.use" };
   if (invalidGatewayId || (typeof tool.gatewayId === "string" && !tool.gatewayId.trim())) {
@@ -75,7 +100,7 @@ export function ToolLiveInvokeGate({
   tool,
 }: ToolLiveInvokeGateProps) {
   const intl = useIntl();
-  const { hasPermission, permissionsLoading } = useAuth();
+  const { hasPermission, permissionsLoading, permissionsError } = useAuth();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const loadingTransition = useMemo(() => ({ isLoading: invoke.isLoading }), [invoke.isLoading]);
   const debouncedLoadingTransition = useDebouncedValue(
@@ -95,10 +120,11 @@ export function ToolLiveInvokeGate({
         canExecute: hasPermission("tools.execute"),
         canUseServers: hasPermission("servers.use"),
         permissionsLoading,
+        permissionsError,
         invalidGatewayId,
         tool,
       }),
-    [hasPermission, permissionsLoading, invalidGatewayId, tool],
+    [hasPermission, permissionsLoading, permissionsError, invalidGatewayId, tool],
   );
 
   if (invoke.isLoading) {
@@ -207,6 +233,8 @@ export function getToolLiveInvokeAvailabilityMessage(
   switch (availability.state) {
     case "checkingAccess":
       return formatMessage({ id: "tools.details.invoke.unavailable.checkingAccess" });
+    case "permissionsError":
+      return formatMessage({ id: "tools.details.invoke.unavailable.permissionsError" });
     case "missingPermission":
       return formatMessage({
         id:
