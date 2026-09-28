@@ -49,7 +49,7 @@ export function TruncatedDescription({
           {" "}
           <button
             type="button"
-            className="font-normal text-muted-foreground underline-offset-2 hover:underline"
+            className="font-normal text-muted-foreground underline underline-offset-2"
             aria-expanded={expanded}
             aria-controls={id}
             onClick={() => setExpanded((current) => !current)}
