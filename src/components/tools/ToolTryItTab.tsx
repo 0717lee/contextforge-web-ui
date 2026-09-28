@@ -36,6 +36,12 @@ import { TruncatedDescription } from "./TruncatedDescription";
 
 const DEFAULT_SNIPPET_LANGUAGE: ToolSnippetLanguage = "curl";
 
+/** Shorter than TruncatedDescription's own default: this line also carries
+ * the "MCP version …" prefix, and the panel is the first thing a caller
+ * sees, so the collapsed state should read as ~2 lines, not fill the
+ * panel. */
+const TOOL_DESCRIPTION_TRUNCATE_LENGTH = 130;
+
 export interface ToolTryItTabProps {
   headingRef?: Ref<HTMLHeadingElement>;
   invalidGatewayId?: boolean;
@@ -220,22 +226,21 @@ export function ToolTryItTab({
             </div>
           )}
 
-          <div className="flex max-w-4xl flex-wrap items-baseline gap-x-2 gap-y-1 whitespace-normal break-words text-[13px] leading-4 text-muted-foreground">
-            <span className="inline-flex shrink-0 items-center gap-1.5 font-medium">
-              <Tag className="size-3" aria-hidden="true" />
-              {intl.formatMessage(
-                { id: "tools.details.code.mcpVersionLabel" },
-                { version: TOOL_SNIPPET_MCP_VERSION },
-              )}
-            </span>
-            {selectedTool.description && (
-              <TruncatedDescription
-                text={selectedTool.description}
-                id={toolDescriptionId}
-                className="min-w-0 flex-1"
-              />
-            )}
-          </div>
+          <TruncatedDescription
+            text={selectedTool.description ?? ""}
+            id={toolDescriptionId}
+            maxLength={TOOL_DESCRIPTION_TRUNCATE_LENGTH}
+            className="max-w-4xl text-[13px] leading-4 text-muted-foreground"
+            prefix={
+              <span className="mr-1.5 inline-flex items-center gap-1.5 align-text-bottom font-medium text-muted-foreground">
+                <Tag className="size-3" aria-hidden="true" />
+                {intl.formatMessage(
+                  { id: "tools.details.code.mcpVersionLabel" },
+                  { version: TOOL_SNIPPET_MCP_VERSION },
+                )}
+              </span>
+            }
+          />
         </div>
       )}
 

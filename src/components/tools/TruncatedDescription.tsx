@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { useIntl } from "react-intl";
 
 /** Schema/tool descriptions are free text with no length limit, so a single
@@ -14,6 +15,11 @@ export interface TruncatedDescriptionProps {
   id?: string;
   className?: string;
   maxLength?: number;
+  /** Rendered inline before `text`, inside the same `<p>` (e.g. a version
+   * badge). Keeping it in the paragraph's normal text flow, rather than a
+   * flex sibling, means a wrapped line starts back at the paragraph's own
+   * left edge instead of hanging indented under the prefix. */
+  prefix?: ReactNode;
 }
 
 /**
@@ -27,6 +33,7 @@ export function TruncatedDescription({
   id,
   className,
   maxLength = DESCRIPTION_TRUNCATE_LENGTH,
+  prefix,
 }: TruncatedDescriptionProps) {
   const intl = useIntl();
   const [expanded, setExpanded] = useState(false);
@@ -35,6 +42,7 @@ export function TruncatedDescription({
 
   return (
     <p id={id} className={className}>
+      {prefix}
       {visibleText}
       {canTruncate && (
         <>
