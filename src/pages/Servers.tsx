@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { MCPIcon } from "@/components/icons/MCPIcon";
@@ -16,11 +16,10 @@ import { OAuthCancelledError, serversApi } from "@/api/servers";
 import { useRouter } from "@/router";
 import { extractApiErrorDetail, sanitizeError } from "@/utils/errors";
 import type { MCPServer, ServersResponse } from "@/types/server";
+import type { OAuthTokenStatus } from "@/lib/serverStatus";
 import { Loading } from "@/components/ui/loading";
 import { InlineNotification } from "@/components/ui/inline-notification";
 import { useIntl } from "react-intl";
-import { useOAuthStatuses } from "@/hooks/useOAuthStatuses";
-import { isOAuthServer } from "@/lib/serverStatus";
 
 // Pagination constants
 const DEFAULT_PAGE_SIZE = 10;
@@ -32,7 +31,6 @@ export function Servers() {
   const canCreateServer = !permissionsLoading && hasPermission("gateways.create");
   const canUpdateServer = !permissionsLoading && hasPermission("gateways.update");
   const canDeleteServer = !permissionsLoading && hasPermission("gateways.delete");
-  const canReadServers = !permissionsLoading && hasPermission("gateways.read");
   const [limit, setLimit] = useState(DEFAULT_PAGE_SIZE);
   const [allServers, setAllServers] = useState<MCPServer[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -41,6 +39,10 @@ export function Servers() {
   const [updateServerId, setUpdateServerId] = useState<string | null>(null);
   const [toggleError, setToggleError] = useState<string | null>(null);
   const [refreshingServerIds, setRefreshingServerIds] = useState<Set<string>>(new Set());
+  const [oauthTokenStatuses, setOAuthTokenStatuses] = useState<Record<string, OAuthTokenStatus>>(
+    {},
+  );
+  const latestOAuthRequestIdRef = useRef(0);
   const [loadingMore, setLoadingMore] = useState(false);
   const [selectedServerIdForDetails, setSelectedServerIdForDetails] = useState<string | null>(null);
   const [isDetailsDrawerOpen, setIsDetailsDrawerOpen] = useState(false);
@@ -104,15 +106,42 @@ export function Servers() {
 
   // Derive servers from accumulated list
   const servers = allServers;
+
+  // Only OAuth servers have a per-user token, and the batch does sequential lookups.
   const oauthServerIds = useMemo(
-    () => servers.filter(isOAuthServer).map((server) => server.id),
-    [servers],
+    () => allServers.filter((server) => server.authType === "oauth").map((server) => server.id),
+    [allServers],
   );
-  const {
-    entries: oauthStatuses,
-    reload: reloadOAuthStatuses,
-    retry: retryOAuthStatus,
-  } = useOAuthStatuses(oauthServerIds, { enabled: canReadServers });
+
+  const loadOAuthStatuses = useCallback(async () => {
+    if (oauthServerIds.length === 0) {
+      latestOAuthRequestIdRef.current += 1;
+      setOAuthTokenStatuses({});
+      return;
+    }
+    // Concurrent lookups share state, so only the latest-issued may publish it.
+    const requestId = ++latestOAuthRequestIdRef.current;
+    try {
+      const statuses = await serversApi.getOAuthStatus(oauthServerIds);
+      if (requestId !== latestOAuthRequestIdRef.current) return;
+      setOAuthTokenStatuses(
+        Object.fromEntries(
+          Object.entries(statuses).flatMap(([id, status]) =>
+            status.user_token_status
+              ? [[id, status.user_token_status.status as OAuthTokenStatus]]
+              : [],
+          ),
+        ),
+      );
+    } catch (err) {
+      // Statuses are left as they are, so rows keep their last known state.
+      console.error("Failed to load OAuth status:", sanitizeError(err));
+    }
+  }, [oauthServerIds]);
+
+  useEffect(() => {
+    void loadOAuthStatuses();
+  }, [loadOAuthStatuses]);
 
   const getServerText = useCallback(
     (server: MCPServer) => `${server.name} ${server.description ?? ""} ${server.id}`,
@@ -215,33 +244,26 @@ export function Servers() {
         if (err instanceof OAuthCancelledError) return;
         toast.error(
           intl.formatMessage(
-            { id: "mcpServer.status.authorizationError" },
+            { id: "mcpServer.status.action.error" },
             { error: sanitizeError(err) },
           ),
         );
         return;
       }
-
-      await reloadOAuthStatuses([id]);
-
-      if (canUpdateServer) {
-        try {
-          await serversApi.fetchToolsAfterOAuth(id);
-        } catch (err) {
-          toast.warning(intl.formatMessage({ id: "mcpServer.status.componentRefreshError" }), {
-            description: sanitizeError(err),
-          });
-          console.error("Failed to fetch components after authorization:", sanitizeError(err));
-        }
+      try {
+        await serversApi.fetchToolsAfterOAuth(id);
+      } catch (err) {
+        // Needs gateways.update, which the caller may lack. Authorization still succeeded.
+        console.error("Failed to fetch components after authorization:", sanitizeError(err));
       }
-
       try {
         await refetch();
       } catch (err) {
         console.error("Failed to refresh servers after authorization:", sanitizeError(err));
       }
+      await loadOAuthStatuses();
     },
-    [canUpdateServer, intl, refetch, reloadOAuthStatuses],
+    [refetch, loadOAuthStatuses, intl],
   );
 
   const handleRefresh = useCallback(
@@ -497,9 +519,8 @@ export function Servers() {
                 onToggleEnabled={canUpdateServer ? handleToggleEnabled : undefined}
                 onRefresh={canUpdateServer ? handleRefresh : undefined}
                 refreshingServerIds={refreshingServerIds}
-                oauthStatuses={oauthStatuses}
-                onAuthorize={canReadServers ? handleAuthorize : undefined}
-                onRetryOAuthStatus={(id) => void retryOAuthStatus(id)}
+                oauthTokenStatuses={oauthTokenStatuses}
+                onAuthorize={handleAuthorize}
               />
               {query.trim() && filteredServers.length === 0 && (
                 <p className="mt-6 text-sm text-muted-foreground">
@@ -595,11 +616,6 @@ export function Servers() {
         open={isDetailsDrawerOpen}
         onClose={() => handleCloseDetails(false)}
         onAddTag={canUpdateServer ? handleAddServerTag : undefined}
-        oauthStatus={panelServer ? oauthStatuses[panelServer.id] : undefined}
-        onAuthorize={
-          canReadServers && panelServer ? () => handleAuthorize(panelServer.id) : undefined
-        }
-        onRetryOAuthStatus={panelServer ? () => void retryOAuthStatus(panelServer.id) : undefined}
       />
     </div>
   );

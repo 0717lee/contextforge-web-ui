@@ -552,11 +552,7 @@ describe("Servers", () => {
     vi.mocked(api.get).mockImplementation((path: string) => {
       if (path.startsWith("/oauth/status")) {
         return Promise.resolve({
-          "server-0": {
-            oauth_enabled: true,
-            grant_type: "authorization_code",
-            user_token_status: { status: tokenStatus, authorized: tokenStatus === "valid" },
-          },
+          "server-0": { user_token_status: { status: tokenStatus } },
         } as never);
       }
       if (listCalls++ === 0) {

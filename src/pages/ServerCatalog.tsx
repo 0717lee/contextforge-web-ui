@@ -8,6 +8,7 @@ import {
   registerCatalogServer,
   testCatalogServer,
   type GatewayImpactPreview,
+  type OAuthGatewayStatusMap,
 } from "@/api/catalog";
 import { ApiError } from "@/api/client";
 import { serversApi } from "@/api/servers";
@@ -33,14 +34,12 @@ import type {
   CatalogServerRegisterBody,
 } from "@/generated/types";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
-import { useOAuthStatuses } from "@/hooks/useOAuthStatuses";
 import { useQuery } from "@/hooks/useQuery";
 import { useRouter } from "@/router";
 import {
   API_KEY_AUTH_TYPES,
   getAuthTypeGroupId,
   getOrderedAuthTypeGroups,
-  isCatalogOAuthServer,
   normalizeAuthTypeFilterValue,
   OAUTH_AUTH_TYPES,
   OPEN_AUTH_TYPE,
@@ -214,8 +213,22 @@ function sortedUnique(values: Array<string | undefined>): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value)))].sort();
 }
 
+function isOAuthServer(server: CatalogServer): boolean {
+  return OAUTH_AUTH_TYPES.has(server.auth_type);
+}
+
 function getSupportedServers(servers: CatalogServer[]): CatalogServer[] {
   return servers.filter((server) => SUPPORTED_AUTH_TYPE_SET.has(server.auth_type));
+}
+
+function getOAuthStatusesPath(servers: CatalogServer[]): string | null {
+  const gatewayIds = servers
+    .filter((server) => server.is_registered && server.gateway_id && isOAuthServer(server))
+    .map((server) => server.gateway_id!);
+  if (gatewayIds.length === 0) return null;
+  const params = new URLSearchParams();
+  gatewayIds.forEach((gatewayId) => params.append("gateway_ids", gatewayId));
+  return `/oauth/status?${params.toString()}`;
 }
 
 function setCatalogServerRegistration(
@@ -255,6 +268,25 @@ function setCatalogServerOAuthPending(
   const servers = [...catalog.servers];
   servers[serverIndex] = { ...servers[serverIndex], requires_oauth_config: requiresOAuthConfig };
   return { ...catalog, servers };
+}
+
+function setOAuthGatewayAuthorized(
+  statuses: OAuthGatewayStatusMap | undefined,
+  gatewayId: string,
+): OAuthGatewayStatusMap {
+  const currentStatus = statuses?.[gatewayId];
+  return {
+    ...statuses,
+    [gatewayId]: {
+      ...currentStatus,
+      oauth_enabled: true,
+      user_token_status: {
+        ...currentStatus?.user_token_status,
+        status: "valid",
+        authorized: true,
+      },
+    },
+  };
 }
 
 function getRetryAfterMs(value: string | null): number {
@@ -403,23 +435,20 @@ export function ServerCatalog() {
   const notificationToFocusRef = useRef<string | null>(null);
   const shouldRedirectDisconnectCloseFocusRef = useRef(false);
   const { data, error, isLoading, refetch, setData } = useQuery<CatalogListResponse>(CATALOG_PATH);
-  const canReadOAuthStatuses = !permissionsLoading && hasPermission("gateways.read");
-  const canUpdateServer = !permissionsLoading && hasPermission("gateways.update");
-  const oauthGatewayIds = useMemo(
-    () =>
-      (data?.servers ?? [])
-        .filter(
-          (server) => server.is_registered && server.gateway_id && isCatalogOAuthServer(server),
-        )
-        .map((server) => server.gateway_id!),
+  const oauthStatusesPath = useMemo(
+    () => getOAuthStatusesPath(data?.servers ?? []),
     [data?.servers],
   );
   const {
-    entries: oauthStatuses,
-    reload: reloadOAuthStatuses,
-    retry: retryOAuthStatus,
-  } = useOAuthStatuses(oauthGatewayIds, { enabled: canReadOAuthStatuses });
-  const canTest = canReadOAuthStatuses;
+    data: oauthStatuses,
+    refetch: refetchOAuthStatuses,
+    setData: setOAuthStatuses,
+  } = useQuery<OAuthGatewayStatusMap>(oauthStatusesPath, { enabled: oauthStatusesPath !== null });
+  const refetchOAuthStatusesRef = useRef(refetchOAuthStatuses);
+  useEffect(() => {
+    refetchOAuthStatusesRef.current = refetchOAuthStatuses;
+  }, [refetchOAuthStatuses]);
+  const canTest = !permissionsLoading && hasPermission("gateways.read");
   const canDisconnect = !permissionsLoading && hasPermission("gateways.delete");
   const { filters, updateQuery, toggleFilterOption, clearFilterSection, clearAllFilters } =
     useCatalogFilters();
@@ -498,32 +527,12 @@ export function ServerCatalog() {
     );
   }, []);
 
-  const refreshOAuthStatus = useCallback(
-    (gatewayId: string) => reloadOAuthStatuses([gatewayId]),
-    [reloadOAuthStatuses],
-  );
-
-  const refreshGatewayData = useCallback(
-    async (gatewayId: string, server: Pick<CatalogServer, "id" | "name">) => {
-      const componentRefreshPromise = canUpdateServer
-        ? serversApi.fetchToolsAfterOAuth(gatewayId)
-        : Promise.resolve(undefined);
-      const [, componentRefresh] = await Promise.allSettled([
-        refreshOAuthStatus(gatewayId),
-        componentRefreshPromise,
-      ]);
-      if (componentRefresh.status === "rejected") {
-        showRegistrationNotification({
-          id: `oauth:${server.id}`,
-          type: "info",
-          message: intl.formatMessage(
-            { id: "mcpServer.catalog.oauth.authorizedToolsPending" },
-            { name: server.name },
-          ),
-        });
-      }
+  const markOAuthAuthorized = useCallback(
+    (gatewayId: string) => {
+      setOAuthStatuses((current) => setOAuthGatewayAuthorized(current, gatewayId));
+      void refetchOAuthStatusesRef.current().catch(() => undefined);
     },
-    [canUpdateServer, intl, refreshOAuthStatus, showRegistrationNotification],
+    [setOAuthStatuses],
   );
 
   useEffect(() => {
@@ -754,8 +763,20 @@ export function ServerCatalog() {
       setOAuthDialogNotification(undefined);
       try {
         await serversApi.triggerOAuthAuthorization(gatewayId, authWindow);
-        if (canUpdateServer) await serversApi.toggleEnabled(gatewayId, true);
-        await refreshGatewayData(gatewayId, oauthServer);
+        await serversApi.toggleEnabled(gatewayId, true);
+        try {
+          await serversApi.fetchToolsAfterOAuth(gatewayId);
+        } catch {
+          showRegistrationNotification({
+            id: `oauth:${oauthServer.id}`,
+            type: "info",
+            message: intl.formatMessage(
+              { id: "mcpServer.catalog.oauth.authorizedToolsPending" },
+              { name: oauthServer.name },
+            ),
+          });
+        }
+        markOAuthAuthorized(gatewayId);
         setData((current) => setCatalogServerOAuthPending(current, oauthServer.id, false));
         void refreshCatalogSilently();
         setPendingOAuthGatewayId(null);
@@ -778,13 +799,13 @@ export function ServerCatalog() {
     },
     [
       intl,
-      canUpdateServer,
+      markOAuthAuthorized,
       oauthServer,
       pendingOAuthGatewayId,
-      refreshGatewayData,
       refreshCatalogSilently,
       registerServer,
       setData,
+      showRegistrationNotification,
     ],
   );
 
@@ -794,8 +815,20 @@ export function ServerCatalog() {
       dismissRegistrationNotification(`oauth:${server.id}`);
       try {
         await serversApi.triggerOAuthAuthorization(server.gateway_id);
-        if (canUpdateServer) await serversApi.toggleEnabled(server.gateway_id, true);
-        await refreshGatewayData(server.gateway_id, server);
+        await serversApi.toggleEnabled(server.gateway_id, true);
+        try {
+          await serversApi.fetchToolsAfterOAuth(server.gateway_id);
+        } catch {
+          showRegistrationNotification({
+            id: `oauth:${server.id}`,
+            type: "info",
+            message: intl.formatMessage(
+              { id: "mcpServer.catalog.oauth.authorizedToolsPending" },
+              { name: server.name },
+            ),
+          });
+        }
+        markOAuthAuthorized(server.gateway_id);
         setData((current) => setCatalogServerOAuthPending(current, server.id, false));
         void refreshCatalogSilently();
       } catch (error) {
@@ -813,11 +846,10 @@ export function ServerCatalog() {
     },
     [
       beginAdding,
-      canUpdateServer,
       dismissRegistrationNotification,
       endAdding,
       intl,
-      refreshGatewayData,
+      markOAuthAuthorized,
       refreshCatalogSilently,
       setData,
       showRegistrationNotification,
@@ -1262,20 +1294,13 @@ export function ServerCatalog() {
         oauthStatuses={oauthStatuses}
         addErrors={addErrors}
         onAddErrorRead={clearAddError}
-        onRetryOAuthStatus={(gatewayId) => void retryOAuthStatus(gatewayId)}
       />
 
       <p aria-live="polite" aria-atomic="true" className="sr-only">
         {addErrorAnnouncement}
       </p>
 
-      <CatalogServerDetailsDialog
-        server={selectedServer}
-        oauthStatus={
-          selectedServer?.gateway_id ? oauthStatuses[selectedServer.gateway_id] : undefined
-        }
-        onOpenChange={handleDetailsOpenChange}
-      />
+      <CatalogServerDetailsDialog server={selectedServer} onOpenChange={handleDetailsOpenChange} />
       <ConfirmDialog
         open={disconnectServer !== null}
         role="alertdialog"

@@ -1,26 +1,13 @@
 import { Activity, CircleDashed, CircleSlash, type LucideIcon } from "lucide-react";
 
-import type { OAuthStatusEntry } from "@/hooks/useOAuthStatuses";
 import { STATUS_ICON } from "@/lib/status";
 
-export type ServerAvailability =
-  | "active"
-  | "authorization_required"
-  | "authorization_expired"
-  | "authorization_expiring"
-  | "authorization_checking"
-  | "authorization_unavailable"
-  | "unreachable"
-  | "checking"
-  | "inactive";
+/** Availability of an MCP server, shared by the servers page, source picker and catalog. */
 
-const AUTHORIZATION_AVAILABILITIES: ReadonlySet<ServerAvailability> = new Set([
-  "authorization_required",
-  "authorization_expired",
-  "authorization_expiring",
-  "authorization_checking",
-  "authorization_unavailable",
-]);
+/** Per-user token state from `GET /oauth/status`. `unknown` means the backend could not be read. */
+export type OAuthTokenStatus = "valid" | "near_expiry" | "expired" | "missing" | "unknown";
+
+export type ServerAvailability = "active" | "auth" | "unreachable" | "checking" | "inactive";
 
 export interface ServerAvailabilityInput {
   enabled: boolean;
@@ -28,15 +15,9 @@ export interface ServerAvailabilityInput {
   lastSeen?: string | null;
 }
 
-export function isOAuthServer(server: {
-  authType?: string | null;
-  oauthConfig?: unknown;
-}): boolean {
-  return server.authType?.toLowerCase() === "oauth" || server.oauthConfig != null;
-}
-
 interface AvailabilityPresentation {
   Icon: LucideIcon;
+  /** Applies to the icon only; labels stay muted. */
   iconClassName: string;
   labelId: string;
   shortLabelId: string;
@@ -51,40 +32,12 @@ const PRESENTATION: Record<ServerAvailability, AvailabilityPresentation> = {
     shortLabelId: "mcpServer.status.active",
     detailId: "mcpServer.status.detail.active",
   },
-  authorization_required: {
+  auth: {
     Icon: STATUS_ICON.warning,
     iconClassName: "text-warning",
-    labelId: "mcpServer.status.authRequired",
+    labelId: "mcpServer.status.auth",
     shortLabelId: "mcpServer.status.auth.short",
-    detailId: "mcpServer.status.detail.authRequired",
-  },
-  authorization_expired: {
-    Icon: STATUS_ICON.error,
-    iconClassName: "text-destructive",
-    labelId: "mcpServer.status.authExpired",
-    shortLabelId: "mcpServer.status.auth.short",
-    detailId: "mcpServer.status.detail.authExpired",
-  },
-  authorization_expiring: {
-    Icon: STATUS_ICON.warning,
-    iconClassName: "text-warning",
-    labelId: "mcpServer.status.authExpiring",
-    shortLabelId: "mcpServer.status.auth.short",
-    detailId: "mcpServer.status.detail.authExpiring",
-  },
-  authorization_checking: {
-    Icon: CircleDashed,
-    iconClassName: "text-muted-foreground",
-    labelId: "mcpServer.status.authChecking",
-    shortLabelId: "mcpServer.status.authChecking",
-    detailId: "mcpServer.status.detail.authChecking",
-  },
-  authorization_unavailable: {
-    Icon: STATUS_ICON.warning,
-    iconClassName: "text-muted-foreground",
-    labelId: "mcpServer.status.authUnavailable",
-    shortLabelId: "mcpServer.status.unavailable",
-    detailId: "mcpServer.status.detail.authUnavailable",
+    detailId: "mcpServer.status.detail.auth",
   },
   unreachable: {
     Icon: CircleSlash,
@@ -109,32 +62,28 @@ const PRESENTATION: Record<ServerAvailability, AvailabilityPresentation> = {
   },
 };
 
+const NEEDS_AUTHORIZATION: ReadonlySet<OAuthTokenStatus> = new Set(["missing", "expired"]);
+
+/**
+ * Classify a server. `auth` outranks every other state.
+ *
+ * @param server Availability fields from the gateway list response.
+ * @param oauthTokenStatus The caller's own token state, when known.
+ */
 export function getServerAvailability(
   server: ServerAvailabilityInput,
-  oauthStatus?: OAuthStatusEntry,
+  oauthTokenStatus?: OAuthTokenStatus,
 ): ServerAvailability {
-  // Caller-scoped authorization state intentionally outranks server lifecycle,
-  // including for disabled servers, so failures never imply usable authorization.
-  if (oauthStatus?.state === "loading") return "authorization_checking";
-  if (oauthStatus?.state === "unavailable") return "authorization_unavailable";
-  if (oauthStatus?.state === "ready") {
-    if (oauthStatus.tokenStatus === "missing") return "authorization_required";
-    if (oauthStatus.tokenStatus === "expired") return "authorization_expired";
-    if (oauthStatus.tokenStatus === "near_expiry") return "authorization_expiring";
-  }
+  if (oauthTokenStatus && NEEDS_AUTHORIZATION.has(oauthTokenStatus)) return "auth";
+  // A server disabled while up keeps `reachable: true` frozen.
   if (!server.enabled) return "inactive";
   if (server.reachable) return "active";
   return server.lastSeen ? "unreachable" : "checking";
 }
 
-export function getAvailabilityPresentation(availability: ServerAvailability) {
+/** Icon, tone and message ids for an availability state. */
+export function getAvailabilityPresentation(
+  availability: ServerAvailability,
+): AvailabilityPresentation {
   return PRESENTATION[availability];
-}
-
-export function needsOAuthAuthorization(availability: ServerAvailability): boolean {
-  return availability === "authorization_required" || availability === "authorization_expired";
-}
-
-export function isAuthorizationAvailability(availability: ServerAvailability): boolean {
-  return AUTHORIZATION_AVAILABILITIES.has(availability);
 }

@@ -298,17 +298,7 @@ describe("ServersTable", () => {
         isLoading={false}
         onEdit={noop}
         onDelete={noop}
-        oauthStatuses={{
-          "server-uuid-1": {
-            state: "ready",
-            tokenStatus: "missing",
-            status: {
-              oauth_enabled: true,
-              grant_type: "authorization_code",
-              user_token_status: { status: "missing", authorized: false },
-            },
-          },
-        }}
+        oauthTokenStatuses={{ "server-uuid-1": "missing" }}
       />,
     );
     expect(screen.getByText("Auth")).toBeInTheDocument();
@@ -323,17 +313,7 @@ describe("ServersTable", () => {
         isLoading={false}
         onEdit={noop}
         onDelete={noop}
-        oauthStatuses={{
-          "server-uuid-1": {
-            state: "ready",
-            tokenStatus: "missing",
-            status: {
-              oauth_enabled: true,
-              grant_type: "authorization_code",
-              user_token_status: { status: "missing", authorized: false },
-            },
-          },
-        }}
+        oauthTokenStatuses={{ "server-uuid-1": "missing" }}
         onAuthorize={onAuthorize}
       />,
     );
@@ -372,64 +352,6 @@ describe("ServersTable", () => {
       />,
     );
     expect(screen.getByText("Active")).toBeInTheDocument();
-  });
-
-  it("offers authorization for a missing caller token when permission allows it", async () => {
-    const user = userEvent.setup();
-    const onAuthorize = vi.fn().mockResolvedValue(undefined);
-    renderTable(
-      <ServersTable
-        servers={[makeServer({ authType: "oauth" })]}
-        isLoading={false}
-        onEdit={noop}
-        onDelete={noop}
-        onAuthorize={onAuthorize}
-        oauthStatuses={{
-          "server-uuid-1": {
-            state: "ready",
-            tokenStatus: "missing",
-            status: {
-              oauth_enabled: true,
-              grant_type: "authorization_code",
-              user_token_status: { status: "missing", authorized: false },
-            },
-          },
-        }}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: "Authorize Test Server" }));
-
-    expect(onAuthorize).toHaveBeenCalledWith("server-uuid-1");
-  });
-
-  it("does not offer authorization when the caller lacks the action", () => {
-    renderTable(
-      <ServersTable
-        servers={[makeServer({ authType: "oauth" })]}
-        isLoading={false}
-        onEdit={noop}
-        onDelete={noop}
-        oauthStatuses={{
-          "server-uuid-1": {
-            state: "ready",
-            tokenStatus: "expired",
-            status: {
-              oauth_enabled: true,
-              grant_type: "authorization_code",
-              user_token_status: { status: "expired", authorized: false },
-            },
-          },
-        }}
-      />,
-    );
-
-    expect(screen.queryByRole("button", { name: "Authorize Test Server" })).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("button", {
-        name: "Test Server status: Authorization expired. Show details",
-      }),
-    ).toBeInTheDocument();
   });
 
   // ── onViewDetails wiring ────────────────────────────────────────────────────

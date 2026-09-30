@@ -16,8 +16,8 @@ import { Loading } from "../ui/loading";
 import { formatLocalDateTime } from "../../utils/formatDate";
 import { CopyButton } from "@/components/ui/copy-button";
 import { TruncatedText } from "@/components/ui/truncated-text";
-import type { OAuthStatusEntry } from "@/hooks/useOAuthStatuses";
 import { ServerStatusIndicator } from "./ServerStatusIndicator";
+import type { OAuthTokenStatus } from "@/lib/serverStatus";
 
 function getLastSeenValue(server: MCPServer): string | undefined {
   return server.lastSeen;
@@ -55,9 +55,9 @@ interface ServersTableProps {
   onToggleEnabled?: (id: string, enabled: boolean) => void;
   onRefresh?: (id: string) => void;
   refreshingServerIds?: Set<string>;
-  oauthStatuses?: Record<string, OAuthStatusEntry>;
+  /** Caller's own OAuth token state, keyed by server id. */
+  oauthTokenStatuses?: Record<string, OAuthTokenStatus>;
   onAuthorize?: (id: string) => Promise<void>;
-  onRetryOAuthStatus?: (id: string) => void;
 }
 
 export function ServersTable({
@@ -69,9 +69,8 @@ export function ServersTable({
   onToggleEnabled,
   onRefresh,
   refreshingServerIds,
-  oauthStatuses,
+  oauthTokenStatuses,
   onAuthorize,
-  onRetryOAuthStatus,
 }: ServersTableProps) {
   const intl = useIntl();
 
@@ -189,9 +188,8 @@ export function ServersTable({
                 <TableCell className="px-4 py-2.5">
                   <ServerStatusIndicator
                     server={server}
-                    oauthStatus={oauthStatuses?.[server.id]}
+                    oauthTokenStatus={oauthTokenStatuses?.[server.id]}
                     onAuthorize={onAuthorize && (() => onAuthorize(server.id))}
-                    onRetry={onRetryOAuthStatus && (() => onRetryOAuthStatus(server.id))}
                     compact
                   />
                 </TableCell>

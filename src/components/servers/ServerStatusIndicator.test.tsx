@@ -2,19 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
 import { renderWithProviders, screen } from "@/test/test-utils";
-import type { OAuthTokenStatus } from "@/api/oauth";
 import { ServerStatusIndicator } from "./ServerStatusIndicator";
 
 const server = { name: "github-notify", enabled: true, reachable: true };
-const readyOAuthStatus = (tokenStatus: OAuthTokenStatus) => ({
-  state: "ready" as const,
-  status: {
-    oauth_enabled: true,
-    grant_type: "authorization_code",
-    user_token_status: { status: tokenStatus, authorized: tokenStatus === "valid" },
-  },
-  tokenStatus,
-});
 
 describe("ServerStatusIndicator", () => {
   it("explains a state with nothing to resolve, in a popover", async () => {
@@ -46,20 +36,6 @@ describe("ServerStatusIndicator", () => {
     expect(await screen.findByText(/not active yet/)).toBeInTheDocument();
     expect(screen.queryByText(/Last error:/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Last response:/)).not.toBeInTheDocument();
-  });
-
-  it("does not expose an invalid raw last-response timestamp", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(
-      <ServerStatusIndicator
-        server={{ ...server, reachable: false, lastSeen: "invalid-backend-timestamp" }}
-      />,
-    );
-
-    await user.click(screen.getByRole("button", { name: /status: Offline/i }));
-
-    expect(await screen.findByText(/Last response:/)).toBeInTheDocument();
-    expect(screen.queryByText(/invalid-backend-timestamp/)).not.toBeInTheDocument();
   });
 
   it("withholds the stale last error an inactive server kept from its last outage", async () => {
@@ -94,13 +70,13 @@ describe("ServerStatusIndicator", () => {
           lastSeen: "2026-04-16T13:23:12Z",
           lastError: "certificate has expired",
         }}
-        oauthStatus={readyOAuthStatus("expired")}
+        oauthTokenStatus="expired"
       />,
     );
 
-    await user.click(screen.getByRole("button", { name: /status: Authorization expired/i }));
+    await user.click(screen.getByRole("button", { name: /status: Authorization/i }));
 
-    expect(await screen.findByText(/authorization has expired/)).toBeInTheDocument();
+    expect(await screen.findByText(/You have not authorized this server/)).toBeInTheDocument();
     expect(screen.queryByText(/certificate has expired/)).not.toBeInTheDocument();
   });
 
@@ -110,7 +86,7 @@ describe("ServerStatusIndicator", () => {
     renderWithProviders(
       <ServerStatusIndicator
         server={server}
-        oauthStatus={readyOAuthStatus("missing")}
+        oauthTokenStatus="missing"
         onAuthorize={onAuthorize}
       />,
     );
@@ -123,11 +99,9 @@ describe("ServerStatusIndicator", () => {
 
   it("explains the auth state where the caller cannot authorize", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <ServerStatusIndicator server={server} oauthStatus={readyOAuthStatus("missing")} />,
-    );
+    renderWithProviders(<ServerStatusIndicator server={server} oauthTokenStatus="missing" />);
 
-    await user.click(screen.getByRole("button", { name: /status: Authorization required/i }));
+    await user.click(screen.getByRole("button", { name: /status: Authorization/i }));
 
     expect(await screen.findByText(/You have not authorized this server/)).toBeInTheDocument();
   });
@@ -143,7 +117,7 @@ describe("ServerStatusIndicator", () => {
     renderWithProviders(
       <ServerStatusIndicator
         server={server}
-        oauthStatus={readyOAuthStatus("missing")}
+        oauthTokenStatus="missing"
         onAuthorize={onAuthorize}
       />,
     );
@@ -153,21 +127,19 @@ describe("ServerStatusIndicator", () => {
     const trigger = screen.getByRole("button", { name: "Authorize github-notify" });
     expect(trigger).toBeDisabled();
     expect(trigger).toHaveTextContent("Authorizing...");
-    expect(screen.getByText("Authorization required")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("Authorization")).toHaveAttribute("aria-hidden", "true");
 
     release?.();
   });
 
   it("announces the full status word where the label is abbreviated", () => {
     renderWithProviders(
-      <ServerStatusIndicator server={server} oauthStatus={readyOAuthStatus("missing")} compact />,
+      <ServerStatusIndicator server={server} oauthTokenStatus="missing" compact />,
     );
 
     expect(screen.getByText("Auth")).toHaveAttribute("aria-hidden", "true");
     expect(
-      screen.getByRole("button", {
-        name: "github-notify status: Authorization required. Show details",
-      }),
+      screen.getByRole("button", { name: "github-notify status: Authorization. Show details" }),
     ).toBeInTheDocument();
   });
 
