@@ -1,13 +1,11 @@
 import { useMemo, useState } from "react";
 import { useIntl } from "react-intl";
 import {
-  Activity,
   ArrowLeft,
   Box,
   Building2,
   ChevronDown,
   ChevronRight,
-  CircleSlash,
   Lock,
   MessageSquareCode,
   Plus,
@@ -16,15 +14,18 @@ import {
 } from "lucide-react";
 import { MainNavIcon } from "@/components/icons/MainNavIcon";
 import { MCPIcon } from "@/components/icons/MCPIcon";
+import { useAuth } from "@/auth/useAuth";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Loading } from "@/components/ui/loading";
 import { TruncatedText } from "@/components/ui/truncated-text";
 import type { ActionCard } from "@/components/gateways/types";
+import { ServerStatusIndicator } from "@/components/servers/ServerStatusIndicator";
+import { useOAuthStatuses } from "@/hooks/useOAuthStatuses";
 import { useQuery } from "@/hooks/useQuery";
+import { isOAuthServer } from "@/lib/serverStatus";
 import { cn } from "@/lib/utils";
-import { STATUS_ICON } from "@/lib/status";
-import type { MCPServer, ServerStatus } from "@/types/server";
+import type { MCPServer } from "@/types/server";
 
 const MCP_SERVERS_QUERY_PATH = "/v1/mcp-servers?limit=100&include_inactive=true";
 
@@ -60,41 +61,6 @@ function getPromptCount(server: ListedMCPServer) {
   return server.promptCount ?? server.prompt_count ?? 0;
 }
 
-function getServerStatus(server: ListedMCPServer): ServerStatus {
-  if (!server.enabled) return "draft";
-  if (!server.reachable) return server.lastSeen ? "warning" : "offline";
-  return "active";
-}
-
-function getStatusConfig(status: ServerStatus) {
-  switch (status) {
-    case "active":
-      return {
-        Icon: Activity,
-        labelId: "gateways.source.status.active",
-        className: "text-success",
-      };
-    case "warning":
-      return {
-        Icon: STATUS_ICON.warning,
-        labelId: "gateways.source.status.warning",
-        className: "text-warning",
-      };
-    case "offline":
-      return {
-        Icon: CircleSlash,
-        labelId: "gateways.source.status.offline",
-        className: "text-muted-foreground",
-      };
-    default:
-      return {
-        Icon: CircleSlash,
-        labelId: "gateways.source.status.inactive",
-        className: "text-muted-foreground",
-      };
-  }
-}
-
 function getVisibilityConfig(visibility: ListedMCPServer["visibility"]) {
   switch (visibility) {
     case "private":
@@ -123,6 +89,8 @@ export function SourceSelection({
   };
 }) {
   const intl = useIntl();
+  const { hasPermission, permissionsLoading } = useAuth();
+  const canReadMCPServers = !permissionsLoading && hasPermission("gateways.read");
   const firstEnabledIndex = actionCards.findIndex((card) => !card.disabled);
   const initialSelectedIndex = firstEnabledIndex === -1 ? 0 : firstEnabledIndex;
   const [selectedIndex, setSelectedIndex] = useState(initialSelectedIndex);
@@ -135,9 +103,16 @@ export function SourceSelection({
     error: mcpServersError,
     isLoading: mcpServersLoading,
   } = useQuery<MCPServersResponse | ListedMCPServer[]>(MCP_SERVERS_QUERY_PATH, {
-    enabled: Boolean(createServerActions) && hasRequestedMCPServers,
+    enabled: Boolean(createServerActions) && hasRequestedMCPServers && canReadMCPServers,
   });
   const mcpServers = useMemo(() => getMCPServers(mcpServersData), [mcpServersData]);
+  const oauthServerIds = useMemo(
+    () => mcpServers.filter(isOAuthServer).map((server) => server.id),
+    [mcpServers],
+  );
+  const { entries: oauthStatuses, retry: retryOAuthStatus } = useOAuthStatuses(oauthServerIds, {
+    enabled: canReadMCPServers,
+  });
   const associatedMCPServerIdSet = useMemo(
     () => new Set(associatedMCPServerIds),
     [associatedMCPServerIds],
@@ -382,8 +357,6 @@ export function SourceSelection({
                         const promptCount = getPromptCount(server);
                         const visibility = getVisibilityConfig(server.visibility);
                         const VisibilityIcon = visibility.Icon;
-                        const status = getStatusConfig(getServerStatus(server));
-                        const StatusIcon = status.Icon;
                         const isSelected = selectedMCPServerIds.has(server.id);
 
                         return (
@@ -429,10 +402,14 @@ export function SourceSelection({
                               <VisibilityIcon className="size-3.5" />
                               {intl.formatMessage({ id: visibility.labelId })}
                             </span>
-                            <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
-                              <StatusIcon className={`size-3.5 ${status.className}`} />
-                              {intl.formatMessage({ id: status.labelId })}
-                            </span>
+                            <ServerStatusIndicator
+                              server={server}
+                              oauthStatus={oauthStatuses[server.id]}
+                              onRetry={() => void retryOAuthStatus(server.id)}
+                              authorizationManagementHint
+                              compact
+                              className="justify-self-start"
+                            />
                           </div>
                         );
                       })}
