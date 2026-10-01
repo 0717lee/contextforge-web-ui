@@ -6,63 +6,55 @@ import {
   StatusIndicatorIcon,
   STATUS_INDICATOR_TRIGGER_CLASS,
 } from "@/components/ui/status-indicator";
-import { cn } from "@/lib/utils";
+import { isRetryableOAuthStatus, type OAuthStatusEntry } from "@/api/oauth";
 import {
   getAvailabilityPresentation,
   getServerAvailability,
-  type OAuthTokenStatus,
+  needsOAuthAuthorization,
   type ServerAvailabilityInput,
 } from "@/lib/serverStatus";
+import { cn } from "@/lib/utils";
 import { ServerStatusDetail } from "./ServerStatusDetail";
 
 interface ServerStatusIndicatorProps {
-  server: ServerAvailabilityInput & {
-    name: string;
-    lastError?: string | null;
-  };
-  oauthTokenStatus?: OAuthTokenStatus;
-  /** Use the short label, for narrow columns. Screen readers still get the full one. */
+  server: ServerAvailabilityInput & { name: string; lastError?: string | null };
+  oauthStatus?: OAuthStatusEntry;
   compact?: boolean;
-  /**
-   * Starts the OAuth authorization flow. Given only where the caller can run
-   * it; without it the `auth` state explains itself like every other state.
-   */
+  /** Disable popover/authorization interaction when nested inside another interactive control. */
+  interactive?: boolean;
   onAuthorize?: () => Promise<void>;
+  onRetry?: () => void;
+  authorizationManagementHint?: boolean;
   className?: string;
 }
 
-/**
- * Server status icon and label.
- *
- * States with nothing to resolve open a popover explaining themselves, the way
- * visibility does. `auth` is the exception: it hands off to the OAuth flow
- * rather than describing it, since authorizing is the whole point of the state.
- *
- * That button stacks its two labels so the wider one sets the width, keeping
- * the row still while the flow is open.
- */
 export function ServerStatusIndicator({
   server,
-  oauthTokenStatus,
+  oauthStatus,
   compact = false,
+  interactive = true,
   onAuthorize,
+  onRetry,
+  authorizationManagementHint = false,
   className,
 }: ServerStatusIndicatorProps) {
   const intl = useIntl();
   const [isAuthorizing, setIsAuthorizing] = useState(false);
-  const availability = getServerAvailability(server, oauthTokenStatus);
+  const availability = getServerAvailability(server, oauthStatus);
   const presentation = getAvailabilityPresentation(availability);
   const StatusIcon = presentation.Icon;
-  const authorize = availability === "auth" ? onAuthorize : undefined;
+  const authorize = needsOAuthAuthorization(availability) ? onAuthorize : undefined;
+  const canRetry =
+    availability === "authorization_unavailable" && isRetryableOAuthStatus(oauthStatus);
   const statusLabel = intl.formatMessage({
     id: compact ? presentation.shortLabelId : presentation.labelId,
   });
-  const authorizingLabel = intl.formatMessage({ id: "mcpServer.status.action.authorizing" });
+  const authorizingLabel = intl.formatMessage({ id: "mcpServer.status.authorizing" });
   const label = isAuthorizing ? authorizingLabel : statusLabel;
   const fullLabel = intl.formatMessage({ id: presentation.labelId });
   const isAbbreviated = compact && presentation.shortLabelId !== presentation.labelId;
 
-  if (authorize) {
+  if (interactive && authorize) {
     const runAuthorize = async () => {
       setIsAuthorizing(true);
       try {
@@ -71,7 +63,6 @@ export function ServerStatusIndicator({
         setIsAuthorizing(false);
       }
     };
-
     return (
       <button
         type="button"
@@ -110,12 +101,17 @@ export function ServerStatusIndicator({
       )}
       className={className}
     >
-      <ServerStatusDetail
-        availability={availability}
-        enabled={server.enabled}
-        lastSeen={server.lastSeen}
-        lastError={server.lastError}
-      />
+      {interactive ? (
+        <ServerStatusDetail
+          availability={availability}
+          enabled={server.enabled}
+          serverName={server.name}
+          lastSeen={server.lastSeen}
+          lastError={server.lastError}
+          onRetry={canRetry ? onRetry : undefined}
+          authorizationManagementHint={authorizationManagementHint}
+        />
+      ) : undefined}
     </StatusIndicator>
   );
 }

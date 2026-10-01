@@ -36,6 +36,15 @@ const routerMock = vi.hoisted(() => ({
   path: "/app/gateways/create-server",
 }));
 
+const authState = vi.hoisted(() => ({
+  hasPermission: vi.fn<(permission: string) => boolean>(() => true),
+  permissionsLoading: false,
+}));
+
+vi.mock("@/auth/useAuth", () => ({
+  useAuth: () => authState,
+}));
+
 vi.mock("@/components/gateways/CreateServerForm", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -94,6 +103,8 @@ describe("CreateServer", () => {
     componentMockState.mockSourceSelection = false;
     componentMockState.capturedSourceSelectionProps = null;
     routerMock.path = "/app/gateways/create-server";
+    authState.hasPermission.mockReturnValue(true);
+    authState.permissionsLoading = false;
     mockNavigate.mockClear();
     mockCreateVirtualServer.mockReset();
     mockUpdateVirtualServer.mockReset();
@@ -612,8 +623,8 @@ describe("CreateServer", () => {
 
     // Status labels exercise every getServerStatus / getStatusConfig branch.
     expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("Warning")).toBeInTheDocument();
     expect(screen.getByText("Offline")).toBeInTheDocument();
+    expect(screen.getByText("Connecting")).toBeInTheDocument();
     expect(screen.getByText("Inactive")).toBeInTheDocument();
 
     // Visibility labels exercise team / private / internal.
@@ -793,6 +804,39 @@ describe("CreateServer", () => {
       });
     });
 
+    it("does not load MCP servers or OAuth status without gateways.read", async () => {
+      routerMock.path = "/app/gateways/create-server?editServerId=gateway-1";
+      authState.hasPermission.mockReturnValue(false);
+      const mcpServersRequest = vi.fn();
+      const oauthStatusRequest = vi.fn();
+      server.use(
+        http.get("*/v1/virtual-servers/gateway-1", () =>
+          HttpResponse.json({
+            id: "gateway-1",
+            name: "Test Edit Server",
+            visibility: "team",
+            oauthEnabled: false,
+          }),
+        ),
+        http.get("*/v1/mcp-servers", () => {
+          mcpServersRequest();
+          return HttpResponse.json({ gateways: [] });
+        }),
+        http.get("*/api/oauth/status", () => {
+          oauthStatusRequest();
+          return HttpResponse.json({});
+        }),
+      );
+
+      renderWithProviders(<CreateServer />);
+
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: "Edit server" })).toBeInTheDocument(),
+      );
+      expect(mcpServersRequest).not.toHaveBeenCalled();
+      expect(oauthStatusRequest).not.toHaveBeenCalled();
+    });
+
     it("center-truncates a resource's URI when it has no name", async () => {
       routerMock.path = "/app/gateways/create-server?editServerId=gateway-1";
       const longUri = "https://example.com/mcp/resources/very-long-identifier-path/data.json";
@@ -877,8 +921,8 @@ describe("CreateServer", () => {
       );
 
       // Each server's computed status label is shown on its accordion row.
-      expect(await screen.findByText("Warning")).toBeInTheDocument();
-      expect(screen.getByText("Offline")).toBeInTheDocument();
+      expect(await screen.findByText("Offline")).toBeInTheDocument();
+      expect(screen.getByText("Connecting")).toBeInTheDocument();
       expect(screen.getByText("Inactive")).toBeInTheDocument();
 
       // Visibility labels cover team / private / internal.
